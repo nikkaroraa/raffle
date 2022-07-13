@@ -13,6 +13,7 @@ const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY
 
 module.exports = {
     solidity: "0.8.7",
+
     defaultNetwork: "hardhat",
     networks: {
         hardhat: {
@@ -33,5 +34,12 @@ module.exports = {
         player: {
             default: 1,
         },
+    },
+    gasReporter: {
+        enabled: false,
+        currency: "USD",
+        outputFile: "gas-report.txt",
+        noColors: true,
+        coinmarketcap: process.env.COINMARKETCAP_API_KEY,
     },
 }
