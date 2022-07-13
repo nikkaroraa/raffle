@@ -130,4 +130,84 @@ const { developmentChains, networkConfig } = require("../../helper-hardhat-confi
                   assert(raffleState.toString() == "1")
               })
           })
+
+          describe("fulfillRandomWords", function () {
+              beforeEach(async function () {
+                  await raffle.enterRaffle({ value: raffleEntranceFee })
+                  await network.provider.send("evm_increaseTime", [interval.toNumber() + 1])
+                  await network.provider.request({ method: "evm_mine", params: [] })
+              })
+
+              it("can only be called after performUpkeep", async function () {
+                  await expect(
+                      vrfCoordinatorV2Mock.fulfillRandomWords(0, raffle.address)
+                  ).to.be.revertedWith("nonexistent request")
+              })
+
+              it("picks a winner, resets the lottery, and sends money", async function () {
+                  const additionalEntrants = 3
+                  const startingAccountIndex = 1 // since deployer = 0
+
+                  const accounts = await ethers.getSigners()
+                  for (
+                      let index = startingAccountIndex;
+                      index < startingAccountIndex + additionalEntrants;
+                      index++
+                  ) {
+                      const accountConnectedRaffle = raffle.connect(accounts[index])
+                      await accountConnectedRaffle.enterRaffle({ value: raffleEntranceFee })
+                  }
+
+                  const startingTimeStamp = await raffle.getLatestTimestamp()
+
+                  // performUpkeep (mock being Chainlink Keepers)
+                  // fulfillRandomWords (mock being the Chainlink VRF)
+                  // We will have to wait for the fulfillRandomWords to be called
+                  await new Promise(async (resolve, reject) => {
+                      raffle.once("WinnerPicked", async () => {
+                          console.log(`Found the "WinnerPicked" event!`)
+                          try {
+                              const recentWinner = await raffle.getRecentWinner()
+
+                              console.log("recentWinner: ", recentWinner)
+                              console.log("accounts[0]: ", accounts[0].address)
+                              console.log("accounts[1]: ", accounts[1].address)
+                              console.log("accounts[2]: ", accounts[2].address)
+                              console.log("accounts[3]: ", accounts[3].address)
+
+                              const raffleState = await raffle.getRaffleState()
+                              const endingTimeStamp = await raffle.getLatestTimestamp()
+                              const numPlayers = await raffle.getNumberOfPlayers()
+                              const winnerEndingBalance = await accounts[1].getBalance()
+
+                              assert.equal(numPlayers.toString(), "0")
+                              assert.equal(raffleState.toString(), "0")
+                              assert(endingTimeStamp > startingTimeStamp)
+
+                              assert.equal(
+                                  winnerEndingBalance.toString(),
+                                  winnerStartingBalance.add(
+                                      raffleEntranceFee
+                                          .mul(additionalEntrants)
+                                          .add(raffleEntranceFee)
+                                          .toString()
+                                  )
+                              )
+                          } catch (e) {
+                              reject(e)
+                          }
+                          resolve()
+                      })
+
+                      const txResponse = await raffle.performUpkeep("0x")
+                      const txReceipt = await txResponse.wait(1)
+                      const winnerStartingBalance = await accounts[1].getBalance()
+
+                      await vrfCoordinatorV2Mock.fulfillRandomWords(
+                          txReceipt.events[1].args.requestId,
+                          raffle.address
+                      )
+                  })
+              })
+          })
       })
